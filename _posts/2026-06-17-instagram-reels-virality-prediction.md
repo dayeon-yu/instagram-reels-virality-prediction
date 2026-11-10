@@ -87,4 +87,4 @@ tags: [Classification, EDA, Data Leakage, Class Imbalance, XGBoost, Data Science
 
 ---
 
-*코드·발표자료 전문은 [GitHub 저장소](https://github.com/<your-username>/instagram-reels-virality-prediction)에서 확인할 수 있습니다.*
+*코드·발표자료 전문은 [GitHub 저장소](https://github.com/dayeon-yu/instagram-reels-virality-prediction)에서 확인할 수 있습니다.*
