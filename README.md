@@ -11,7 +11,7 @@
 
 > 💡 **핵심 결론**: *"The limitation was not the model — it was the dataset."*
 > 선형·트리·부스팅 어느 계열로 바꿔도 ROC-AUC가 0.5 근처에 머물렀고, 원인은 데이터셋 자체의 한계였다.
-> 제출 후 확인한 사실: 이 데이터셋은 Kaggle 작성자가 **AI 보조·통계 규칙으로 생성한 합성(synthetic) 데이터**다 ([아래 고찰](#-제출-후-고찰--합성-데이터라는-사실이-결론을-어떻게-바꾸는가)).
+> 제출 후 확인한 사실: 이 데이터셋은 Kaggle 작성자가 **AI 보조·통계 규칙으로 생성한 합성(synthetic) 데이터**이고, 검증 결과 **타겟(`virality_score`)은 제거했던 engagement 변수를 포함한 모든 입력과 독립**이었다 ([아래 고찰](#-제출-후-고찰--합성-데이터라는-사실이-결론을-어떻게-바꾸는가)).
 
 ---
 
@@ -19,7 +19,7 @@
 
 > Team 6 (5인) · 아래는 본인이 담당한 파트
 
-- **공통 전처리 파이프라인 구성 · 근거 문서화** — 누수 변수 7개(`likes`·`comments`·`shares`·`saves`·`impressions`·`reach`·`engagement_rate`)와 ID 2개 제거, median imputation, stratified split, `random_state=42`를 5개 모델에 동일 적용해 **알고리즘 간 공정 비교의 기반**을 만듦 ([`docs/preprocessing_notes.pdf`](docs/preprocessing_notes.pdf))
+- **공통 전처리 파이프라인 구성 · 근거 문서화** — median imputation, stratified split, `random_state=42`를 5개 모델에 동일 적용해 **알고리즘 간 공정 비교의 기반**을 만듦 ([`docs/preprocessing_notes.pdf`](docs/preprocessing_notes.pdf))
 - **Logistic Regression 담당** — baseline → `class_weight='balanced'` → GridSearchCV(`C`·`penalty`·`class_weight` 16조합, 5-fold Stratified) 튜닝, Accuracy/Precision/Recall/F1/ROC-AUC/Cross-Entropy 6개 지표 평가, 표준화 계수 해석으로 **선형 신호 부재** 입증 ([`notebooks/logistic_regression.ipynb`](notebooks/logistic_regression.ipynb)); 강의 개념(Lecture 2·4·5·6·7·10)과 1:1로 매핑한 주석판 작성 ([`logistic_regression_annotated.ipynb`](notebooks/logistic_regression_annotated.ipynb))
 - **모델 비교 분석 · 추가 실험** — 5개 모델 결과 통합 비교, 클래스 불균형 가설을 검증하기 위한 **Threshold 조정 실험(80 → 60, Viral 20% → 40%)** 수행 → "F1은 오르지만 ROC-AUC는 0.5 그대로"를 확인해 *한계는 모델이 아니라 데이터*라는 결론 도출
 - **발표** — 모델 설명·결과·모델 비교·추가 실험 파트 (Slides 8–18, [`docs/presentation_script.pdf`](docs/presentation_script.pdf))
@@ -78,6 +78,18 @@
 
 ⚠️ **공통 현상**: 모델 종류(선형·트리·부스팅)와 무관하게 **ROC-AUC ≈ 0.5** → 사실상 랜덤 추측 수준
 
+**스크립트 재현** (`python scripts/run_all_models.py`, 2026-11 · [`results/model_comparison_th80.csv`](results/model_comparison_th80.csv))
+
+| 모델 | Accuracy | F1 | ROC-AUC | Viral 예측 비율 | 팀 노트북 수치와 |
+| --- | --- | --- | --- | --- | --- |
+| Logistic Regression | 0.5026 | 0.2896 | 0.4997 | 49.8% | 소수점 4자리까지 일치 |
+| Decision Tree | 0.6767 | 0.2076 | 0.5008 | 20.6% | 일치 |
+| AdaBoost | 0.2025 | 0.3365 | 0.4998 | 99.96% | 일치 (Accuracy ±0.0001) |
+| Random Forest (`class_weight=balanced`) | 0.6217 | 0.2394 | 0.5029 | 29.5% | 노트북은 balanced 미적용 버전(0.7976 / 0.00) |
+| XGBoost (200 · 0.05 · depth 5 · `scale_pos_weight`) | 0.5498 | 0.2786 | 0.5042 | 42.2% | 노트북은 test로 early stopping한 버전(0.5110) |
+
+![ROC threshold 80](results/figures/roc_th80.png)
+
 ---
 
 ## 🔬 추가 실험 — Threshold 조정 (80 → 60)
@@ -93,6 +105,7 @@
 | XGBoost | 0.0000 → 0.5189 | 0.5110 → 0.5023 | F1 상승, false positive 증가 |
 
 - **해석**: 균형을 맞추면 F1(점수)은 오르지만 **ROC-AUC(판별력)는 어떤 모델에서도 개선되지 않음** → 불균형은 근본 원인이 아님
+- 스크립트 재현에서도 같은 패턴: 5개 모델 모두 F1은 +0.15~+0.36 오르고 AUC 변화는 −0.003~+0.002 ([`results/threshold_experiment.csv`](results/threshold_experiment.csv))
 
 ---
 
@@ -111,8 +124,8 @@
 
 ### 📉 Data Leakage 제거로 인한 정보 손실
 
-- 제거된 변수(`likes`, `comments`, `shares`, `saves`, `reach`, `impressions`, `engagement_rate`)가 사실은 **바이럴 예측의 가장 강한 신호**였음
-- 즉, **누수를 막는 과정에서 예측력의 핵심 정보도 함께 사라짐** → 남은 메타데이터만으로는 설명 부족
+- 발표 당시 해석: 제거된 변수(`likes`, `comments`, `shares`, `saves`, `reach`, `impressions`, `engagement_rate`)가 사실은 **바이럴 예측의 가장 강한 신호**였고, 누수를 막는 과정에서 예측력의 핵심 정보도 함께 사라졌다
+- ⚠️ **제출 후 검증 결과 이 가설은 기각됐다.** 누수 변수 7개를 다시 포함해 학습해도 AUC는 0.497~0.504에 머물렀다 ([아래 고찰](#-제출-후-고찰--합성-데이터라는-사실이-결론을-어떻게-바꾸는가))
 
 ---
 
@@ -122,14 +135,29 @@ Kaggle 데이터 카드에는 *"This is a synthetic dataset generated using AI-a
 
 | 관점 | 발표 당시 해석 | 합성 데이터를 고려한 해석 |
 | --- | --- | --- |
-| AUC ≈ 0.5의 의미 | 메타데이터만으로는 실제 바이럴을 설명하기 어렵다 | 생성 규칙이 `virality_score`를 메타데이터와 **독립적으로**(또는 제거한 engagement 변수로만) 만들었을 가능성 → 학습할 신호가 애초에 없다 |
-| 누수 변수 제거 | 올바른 결정, 대신 정보 손실 | 여전히 올바른 결정. 다만 "강한 신호"는 현실의 인과가 아니라 **생성 규칙의 흔적**일 수 있다 |
+| AUC ≈ 0.5의 의미 | 메타데이터만으로는 실제 바이럴을 설명하기 어렵다 | 생성 규칙이 `virality_score`를 **모든 입력과 독립적으로** 만들었다(아래 실험 1·2로 확인) → 학습할 신호가 애초에 없다 |
+| 누수 변수 제거 | 올바른 결정, 대신 정보 손실 | 여전히 올바른 결정. 그러나 "정보 손실"은 없었다 — **누수 변수에도 신호가 없다**(실험 1) |
 | "데이터셋의 한계" | 콘텐츠 수준 정보 부재 | 그 전에 **데이터 생성 과정 자체**를 점검해야 했다 — 데이터 카드 확인은 EDA의 0단계 |
 
-이 가설은 두 가지 실험으로 검증할 수 있고, `scripts/run_all_models.py`에 구현해 두었다 (데이터를 받아 실행하면 `results/`에 표가 생성된다).
+이 가설을 `scripts/run_all_models.py`의 두 실험으로 검증했다 (실행 결과는 [`results/`](results/)에 있다).
 
-- **누수 변수 상한선 실험** (`--leakage-upper-bound`): 제거했던 engagement 변수를 *포함*해 같은 5개 모델을 학습 → AUC가 1.0에 가깝다면 `virality_score`는 사실상 engagement의 함수이고, "제거한 변수가 가장 강한 신호"라는 주장이 숫자로 증명된다.
-- **신호 진단** (`--diagnostics`): 남은 16개 피처 각각의 단변량 AUC·mutual information을 계산하고, **라벨을 무작위로 섞은 뒤** 같은 GBDT를 학습해 비교 → 실제 라벨과 섞은 라벨의 AUC가 같다면 남은 피처에는 학습 가능한 신호가 없다는 영가설을 기각할 수 없다.
+**실험 1 — 누수 변수 상한선** (`--leakage-upper-bound`, [`results/leakage_upper_bound.csv`](results/leakage_upper_bound.csv)): 제거했던 engagement 변수 7개를 *포함*해 같은 5개 모델을 다시 학습했다. `virality_score`가 engagement의 함수라면 AUC가 1.0에 가까워야 한다.
+
+| 모델 | AUC (누수 변수 제외, 발표 설정) | AUC (누수 변수 포함) |
+| --- | --- | --- |
+| Logistic Regression | 0.4997 | 0.5000 |
+| Decision Tree | 0.5008 | 0.5003 |
+| Random Forest | 0.5029 | 0.4974 |
+| AdaBoost | 0.4998 | 0.4998 |
+| XGBoost | 0.5042 | 0.5041 |
+
+![ROC with leakage features](results/figures/roc_th80_leakage.png)
+
+→ **누수 변수를 넣어도 아무것도 달라지지 않는다.** "제거한 변수가 가장 강한 신호였다"는 발표의 주장은 틀렸다. `virality_score`는 likes·shares·reach와도 무관하게 생성됐다.
+
+**실험 2 — 신호 진단** (`--diagnostics`, [`results/signal_diagnostics.csv`](results/signal_diagnostics.csv)): 남은 16개 피처의 단변량 AUC는 최대 0.510(`avg_watch_time_sec`), mutual information은 최대 0.009(`explore_page_boost`)다. 같은 GBDT를 **실제 라벨**로 학습하면 AUC 0.5039, **라벨을 무작위로 섞어** 학습하면 0.5030 — 차이 0.001. 남은 피처에 학습 가능한 신호가 없다는 영가설을 기각할 수 없다.
+
+**수정된 결론**: 다섯 모델이 실패한 이유는 "콘텐츠 정보가 빠졌기 때문"이 아니라, **타겟이 모든 입력 변수와 독립인 합성 데이터**였기 때문이다. 어떤 모델·피처·threshold로도 0.5를 넘을 수 없는 문제였다. 팀의 결론 *"The limitation was not the model — it was the dataset"* 은 맞았지만, 그 이유는 발표 때 말한 것과 달랐다. 데이터 카드 확인과 라벨 섞기 기준선 비교는 모델을 다섯 개 돌리기 전에 했어야 할 10분짜리 작업이었다.
 
 추가로 다음 버전에서 고칠 점:
 - XGBoost 노트북이 `eval_set=[(X_test, y_test)]`로 early stopping을 했다 → test가 모델 선택에 쓰인 것이므로, validation split을 따로 두거나 CV 안에서 멈춰야 한다.
@@ -145,7 +173,7 @@ Kaggle 데이터 카드에는 *"This is a synthetic dataset generated using AI-a
 | 1 | 대부분의 변수는 설명력이 낮았다 |
 | 2 | Viral / Non-Viral 분포가 크게 중첩되었다 |
 | 3 | 클래스 불균형이 예측을 더 어렵게 만들었다 — 하지만 근본 원인은 아니었다 (threshold 실험) |
-| 4 | 중요한 **콘텐츠 수준 정보**가 데이터셋에 없었고, 데이터 자체가 합성이었다 |
+| 4 | 데이터가 합성이었고, **타겟이 (제거한 engagement 변수를 포함한) 모든 입력과 독립**이어서 애초에 학습할 신호가 없었다 |
 
 > **The limitation was not the model. The limitation was the dataset.**
 
@@ -212,7 +240,7 @@ jupyter notebook notebooks/logistic_regression.ipynb
 
 ## 📄 산출물 & 문서
 
-- 🧩 [`scripts/run_all_models.py`](./scripts/run_all_models.py) — 5개 모델 재현 스크립트
+- 🧩 [`scripts/run_all_models.py`](./scripts/run_all_models.py) — 5개 모델 재현 스크립트 · 실행 결과 [`results/`](./results/) (표 5개, ROC 3장)
 - 📓 [`notebooks/ml_models_all.ipynb`](./notebooks/ml_models_all.ipynb) — 5개 모델 전체 파이프라인
 - 📈 [`notebooks/logistic_regression.ipynb`](./notebooks/logistic_regression.ipynb) — LR 상세 (결과·그래프)
 - 📑 [`docs/presentation.pdf`](./docs/presentation.pdf) — 최종 발표자료
