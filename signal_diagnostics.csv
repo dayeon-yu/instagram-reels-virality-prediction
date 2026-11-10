@@ -1,0 +1,17 @@
+feature,univariate_AUC,mutual_info
+avg_watch_time_sec,0.51,0.0013
+editing_quality_score,0.5094,0.0024
+hashtags_count,0.5075,0.0
+retention_rate,0.5061,0.0019
+video_quality_score,0.5053,0.0
+creator_followers,0.505,0.0
+non_follower_reach_ratio,0.505,0.0
+caption_length,0.5041,0.0
+hook_strength_score,0.5034,0.0
+rewatch_rate,0.5028,0.0
+completion_rate,0.5022,0.0034
+trending_audio,0.5015,0.0075
+posting_time,0.5014,0.0005
+explore_page_boost,0.5012,0.0093
+audio_popularity_score,0.5008,0.0
+reel_length_sec,0.5001,0.0013
